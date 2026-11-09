@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>JAG Fly Smart Controller OS</title>
+    <!-- PWA Web Manifest Link -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#000000">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,300;0,400;0,500;0,700;0,900;1,400&family=Orbitron:wght@500;700;900&display=swap');
+
+        body {
+            font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: #000000;
+            color: #ffffff;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+            overflow: hidden;
+        }
+
+        .font-dji {
+            font-family: 'Roboto', sans-serif;
+        }
+
+        .font-mono-dji {
+            font-family: 'Orbitron', monospace;
+        }
+
+        /* Authentic DJI Dark Gradients & Blur */
+        .dji-bar-top {
+            background: linear-gradient(180deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 70%, rgba(0,0,0,0) 100%);
+            backdrop-filter: blur(4px);
+        }
+
+        .dji-bar-bottom {
+            background: linear-gradient(0deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 70%, rgba(0,0,0,0) 100%);
+            backdrop-filter: blur(4px);
+        }
+
+        .dji-panel {
+            background: rgba(18, 20, 24, 0.88);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        /* Status Pills */
+        .status-pill-ready {
+            background: rgba(16, 185, 129, 0.25);
+            border: 1px solid rgba(16, 185, 129, 0.6);
+            color: #34d399;
+        }
+
+        .status-pill-warn {
+            background: rgba(245, 158, 11, 0.25);
+            border: 1px solid rgba(245, 158, 11, 0.6);
+            color: #fbbf24;
+        }
+
+        /* Virtual Joystick */
+        .joystick-zone {
+            width: 130px;
+            height: 130px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1.5px dashed rgba(255, 255, 255, 0.25);
+            position: relative;
+            touch-action: none;
+        }
+
+        .joystick-handle {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255,255,255,0.95) 0%, rgba(200,200,200,0.7) 100%);
+            box-shadow: 0 0 12px rgba(255, 255, 255, 0.5), inset 0 0 4px rgba(0,0,0,0.4);
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+
+        /* DJI Camera Circular Shutter Button */
+        .shutter-btn {
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            border: 3px solid #ffffff;
+            background: rgba(0, 0, 0, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.1s;
+        }
+        .shutter-btn:active {
+            transform: scale(0.92);
+        }
+        .shutter-inner-photo {
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            background-color: #ffffff;
+        }
+        .shutter-inner-video {
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            background-color: #ef4444;
+        }
+
+        /* Custom Range Input */
+        input[type=range] {
+            accent-color: #0ea5e9;
+        }
+    </style>
+</head>
+<body class="w-screen h-screen relative flex flex-col justify-between overflow-hidden select-none">
+
+    <!-- FPV Canvas Stream -->
+    <canvas id="fpvCanvas" class="absolute inset-0 w-full h-full object-cover z-0"></canvas>
+
+    <!-- TOP TELEMETRY BAR (Exact DJI Fly Layout) -->
+    <header class="dji-bar-top relative z-20 w-full px-4 pt-2 pb-4 flex justify-between items-center text-xs">
+        
+        <!-- Left: Flight Status Pill & Mode -->
+        <div class="flex items-center space-x-3">
+            <button onclick="openConnectModal()" id="statusPill" class="status-pill-ready px-3 py-1 rounded-md font-medium tracking-wide flex items-center space-x-2 cursor-pointer shadow-md">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" id="statusDot"></span>
+                <span id="statusText" class="font-bold text-xs uppercase">N-Mode (GPS) | Ready to Go</span>
+                <i class="fa-solid fa-chevron-down text-[10px] opacity-70 ml-1"></i>
+            </button>
+
+            <button onclick="toggleFlightMode()" class="bg-black/40 hover:bg-black/60 border border-white/20 px-2.5 py-1 rounded text-[11px] font-bold text-sky-400 tracking-wider">
+                <span id="flightModeLabel">N-MODE</span>
+            </button>
+        </div>
+
+        <!-- Center: Critical Aircraft Telemetry Icons -->
+        <div class="flex items-center space-x-5 text-white/90 text-xs font-mono-dji tracking-tight">
+            
+            <!-- Satellites -->
+            <div class="flex items-center space-x-1.5" title="GPS Satellites">
+                <i class="fa-solid fa-satellite text-emerald-400 text-sm"></i>
+                <span id="gpsVal" class="font-bold">18</span>
+            </div>
+
+            <!-- Obstacle Avoidance Status -->
+            <div class="flex items-center space-x-1 text-emerald-400" title="Vision Sensors Active">
+                <i class="fa-solid fa-[#00ffcc] fa-shield-halved text-sm"></i>
+            </div>
+
+            <!-- RC Signal -->
+            <div class="flex items-center space-x-1.5" title="Remote Control HD Signal">
+                <i class="fa-solid fa-wifi text-emerald-400 text-sm" id="rssiIcon"></i>
+                <span id="rssiVal">100%</span>
+            </div>
+
+            <!-- Battery Status Indicator -->
+            <button onclick="togglePanel('panelBattery')" class="flex items-center space-x-2 bg-black/40 px-2.5 py-1 rounded border border-white/10 hover:border-white/30 transition">
+                <i class="fa-solid fa-battery-three-quarters text-emerald-400 text-base" id="batIcon"></i>
+                <div class="flex flex-col text-left leading-none">
+                    <div class="flex items-center space-x-1">
+                        <span id="batPct" class="font-bold text-emerald-400 text-xs">84%</span>
+                        <span id="batTime" class="text-[10px] text-white/70">22'45"</span>
+                    </div>
+                    <span id="batVolts" class="text-[9px] text-white/50">15.2V</span>
+                </div>
+            </button>
+        </div>
+
+        <!-- Right: Settings & SD Card Storage -->
+        <div class="flex items-center space-x-3 text-white/90">
+            <!-- SD Card Storage -->
+            <div class="hidden sm:flex items-center space-x-1 text-[11px] bg-black/30 px-2 py-1 rounded border border-white/10">
+                <i class="fa-solid fa-sd-card text-sky-400"></i>
+                <span>62.4 GB</span>
+            </div>
+
+            <!-- Mapping Mission Planner Trigger -->
+            <button onclick="toggleMissionPlanner()" class="bg-sky-500/20 hover:bg-sky-500/40 border border-sky-400/50 text-sky-300 font-mono-dji text-[11px] font-bold px-2.5 py-1 rounded shadow-lg flex items-center space-x-1 transition">
+                <i class="fa-solid fa-map-location-dot"></i>
+                <span>MISSION</span>
+            </button>
+
+            <!-- Settings Menu Trigger -->
+            <button onclick="togglePanel('panelSettings')" class="w-8 h-8 rounded-full bg-black/40 hover:bg-black/60 border border-white/20 flex items-center justify-center transition">
+                <i class="fa-solid fa-ellipsis text-sm"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN FPV VIEW & FLIGHT OVERLAYS -->
+    <main class="relative z-10 flex-1 flex justify-between items-center px-4 pointer-events-none">
+        
+        <!-- LEFT TOOLBAR: Auto Takeoff/Land & RTH -->
+        <div class="flex flex-col space-y-4 pointer-events-auto">
+            <!-- Takeoff / Land Button -->
+            <button id="btnTakeoff" onclick="toggleTakeoff()" class="w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 border border-white/30 flex flex-col items-center justify-center text-white shadow-lg backdrop-blur-md transition">
+                <i class="fa-solid fa-arrow-up-from-bracket text-base text-emerald-400" id="takeoffIcon"></i>
+                <span class="text-[8px] font-bold mt-0.5 tracking-tighter" id="takeoffLabel">TAKEOFF</span>
+            </button>
+
+            <!-- RTH Button (Hold to RTH) -->
+            <button id="btnRTH" onclick="triggerRTH()" class="w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 border border-white/30 flex flex-col items-center justify-center text-white shadow-lg backdrop-blur-md transition">
+                <i class="fa-solid fa-house-chimney text-amber-400 text-sm"></i>
+                <span class="text-[8px] font-bold mt-0.5 tracking-tighter text-amber-400">RTH</span>
+            </button>
+        </div>
+
+        <!-- CENTER CROSSHAIR -->
+        <div class="relative w-16 h-16 flex items-center justify-center opacity-40">
+            <div class="w-full h-[1px] bg-white/70 absolute"></div>
+            <div class="h-full w-[1px] bg-white/70 absolute"></div>
+            <div class="w-2 h-2 border border-white rounded-full"></div>
+        </div>
+
+        <!-- RIGHT TOOLBAR: Camera Controls & Gallery -->
+        <div class="flex flex-col items-center space-y-4 pointer-events-auto">
+            <!-- Photo / Video Mode Switcher -->
+            <button onclick="toggleCamMode()" class="w-9 h-9 rounded-full bg-black/40 border border-white/20 flex items-center justify-center text-white/80 hover:text-white">
+                <i class="fa-solid fa-video text-xs" id="camModeIcon"></i>
+            </button>
+
+            <!-- Camera Shutter Release Button -->
+            <button class="shutter-btn" onclick="triggerShutter()">
+                <div id="shutterInner" class="shutter-inner-photo"></div>
+            </button>
+
+            <!-- Pro Camera Settings Trigger -->
+            <button onclick="togglePanel('panelCamera')" class="bg-black/60 hover:bg-black/80 border border-white/20 text-white font-mono-dji text-[10px] font-bold px-2 py-1 rounded shadow-lg flex flex-col items-center leading-tight">
+                <span class="text-sky-400">PRO</span>
+                <span id="camResLabel" class="text-[9px] text-white/80">4K 60</span>
+            </button>
+        </div>
+    </main>
+
+    <!-- BOTTOM TELEMETRY BAR & JOYSTICKS (Exact DJI Layout) -->
+    <footer class="dji-bar-bottom relative z-20 w-full px-6 pb-4 pt-2 flex justify-between items-end">
+        
+        <!-- Left Joystick (Mode 2: Throttle & Yaw) -->
+        <div class="flex flex-col items-center pointer-events-auto">
+            <div id="joyLeft" class="joystick-zone flex items-center justify-center">
+                <div id="handleLeft" class="joystick-handle"></div>
+            </div>
+        </div>
+
+        <!-- Center DJI Radar & Flight Telemetry Gauge -->
+        <div class="flex items-center space-x-4 pointer-events-auto">
+            <!-- Iconic DJI Circular Compass / Radar -->
+            <div class="relative w-24 h-24 rounded-full bg-black/60 border border-white/20 flex items-center justify-center backdrop-blur-md shadow-2xl">
+                <!-- Outer Compass Ring -->
+                <div class="absolute inset-1 rounded-full border border-white/10 flex items-center justify-center">
+                    <span class="absolute top-1 text-[9px] font-bold text-white/50">N</span>
+                    <span class="absolute right-1 text-[9px] font-bold text-white/30">E</span>
+                    <span class="absolute bottom-1 text-[9px] font-bold text-white/30">S</span>
+                    <span class="absolute left-1 text-[9px] font-bold text-white/30">W</span>
+                </div>
+                <!-- Radar Arrow (Drone Heading) -->
+                <div id="radarArrow" class="w-8 h-8 flex items-center justify-center transition-transform duration-100">
+                    <i class="fa-solid fa-location-arrow text-sky-400 text-lg transform -rotate-45"></i>
+                </div>
+                <!-- Distance to Home Tag -->
+                <span id="radarDistTag" class="absolute -bottom-5 text-[10px] font-mono-dji font-bold text-white/90 bg-black/70 px-2 py-0.5 rounded border border-white/10">H: 0m</span>
+            </div>
+
+            <!-- Telemetry Data Grid -->
+            <div class="flex flex-col justify-center space-y-1 font-mono-dji text-white/90 text-xs bg-black/40 px-4 py-2.5 rounded-lg border border-white/10 backdrop-blur-md">
+                <div class="flex space-x-4">
+                    <div>
+                        <span class="text-white/40 text-[10px]">H</span>
+                        <span id="telemetryH" class="font-bold text-sm ml-1">0.0</span> <span class="text-[10px] text-white/60">m</span>
+                    </div>
+                    <div>
+                        <span class="text-white/40 text-[10px]">D</span>
+                        <span id="telemetryD" class="font-bold text-sm ml-1">0.0</span> <span class="text-[10px] text-white/60">m</span>
+                    </div>
+                </div>
+                <div class="flex space-x-4 border-t border-white/10 pt-1">
+                    <div>
+                        <span class="text-white/40 text-[10px]">VPS</span>
+                        <span id="telemetryVS" class="font-bold text-xs ml-1">0.0</span> <span class="text-[9px] text-white/50">m/s</span>
+                    </div>
+                    <div>
+                        <span class="text-white/40 text-[10px]">HS</span>
+                        <span id="telemetryHS" class="font-bold text-xs ml-1">0.0</span> <span class="text-[9px] text-white/50">m/s</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Joystick (Mode 2: Pitch & Roll) -->
+        <div class="flex flex-col items-center pointer-events-auto">
+            <div id="joyRight" class="joystick-zone flex items-center justify-center">
+                <div id="handleRight" class="joystick-handle"></div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- SIDE PANEL: PRO CAMERA CONTROLS -->
+    <div id="panelCamera" class="dji-panel fixed right-4 top-16 z-30 w-72 p-4 rounded-xl hidden text-xs font-dji shadow-2xl">
+        <div class="flex justify-between items-center border-b border-white/10 pb-2 mb-3">
+            <span class="font-bold text-sky-400 uppercase tracking-wider font-mono-dji"><i class="fa-solid fa-sliders"></i> Camera Settings</span>
+            <button onclick="togglePanel('panelCamera')" class="text-white/50 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="space-y-3">
+            <div class="flex justify-between items-center">
+                <span class="text-white/70">STORAGE</span>
+                <span class="font-mono-dji text-white font-bold">SD Card (62GB)</span>
+            </div>
+            <div>
+                <label class="text-white/70 block mb-1">ISO SENSITIVITY</label>
+                <div class="grid grid-cols-4 gap-1 font-mono-dji text-[10px]">
+                    <button class="bg-sky-500 text-black font-bold py-1 rounded">AUTO</button>
+                    <button class="bg-black/50 hover:bg-black/80 border border-white/20 py-1 rounded">100</button>
+                    <button class="bg-black/50 hover:bg-black/80 border border-white/20 py-1 rounded">400</button>
+                    <button class="bg-black/50 hover:bg-black/80 border border-white/20 py-1 rounded">1600</button>
+                </div>
+            </div>
+            <div>
+                <label class="text-white/70 block mb-1">SHUTTER SPEED</label>
+                <select class="w-full bg-black/60 border border-white/20 rounded p-1 text-white font-mono-dji">
+                    <option>1/1000s</option>
+                    <option selected>1/500s</option>
+                    <option>1/250s</option>
+                    <option>1/60s</option>
+                </select>
+            </div>
+            <div>
+                <label class="text-white/70 block mb-1">GIMBAL PITCH ANGLE (-90° to 0°)</label>
+                <input type="range" id="gimbalSlider" min="-90" max="0" value="0" class="w-full" oninput="updateGimbalTilt(this.value)">
+            </div>
+        </div>
+    </div>
+
+    <!-- SIDE PANEL: BATTERY TELEMETRY -->
+    <div id="panelBattery" class="dji-panel fixed right-4 top-16 z-30 w-72 p-4 rounded-xl hidden text-xs font-dji shadow-2xl">
+        <div class="flex justify-between items-center border-b border-white/10 pb-2 mb-3">
+            <span class="font-bold text-emerald-400 uppercase tracking-wider font-mono-dji"><i class="fa-solid fa-battery-full"></i> Intelligent Flight Battery</span>
+            <button onclick="togglePanel('panelBattery')" class="text-white/50 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="space-y-3 font-mono-dji">
+            <div class="flex justify-between items-center">
+                <span class="text-white/70">TOTAL VOLTAGE</span>
+                <span class="text-emerald-400 font-bold" id="panelBatVolts">15.2 V</span>
+            </div>
+            <div class="flex justify-between items-center">
+                <span class="text-white/70">BATTERY TEMP</span>
+                <span class="text-white font-bold">34.2 °C</span>
+            </div>
+            <div class="border-t border-white/10 pt-2 space-y-1 text-[11px]">
+                <div class="flex justify-between"><span>CELL 1</span><span class="text-emerald-400">3.80 V</span></div>
+                <div class="flex justify-between"><span>CELL 2</span><span class="text-emerald-400">3.80 V</span></div>
+                <div class="flex justify-between"><span>CELL 3</span><span class="text-emerald-400">3.79 V</span></div>
+                <div class="flex justify-between"><span>CELL 4</span><span class="text-emerald-400">3.81 V</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MISSION PLANNER & PHOTOGRAMMETRY OVERLAY -->
+    <div id="modalMission" class="fixed inset-0 z-40 flex items-center justify-center bg-black/85 backdrop-blur-md hidden">
+        <div class="dji-panel w-11/12 max-w-2xl p-6 rounded-2xl border border-sky-500/40 shadow-2xl font-dji flex flex-col max-h-[85vh]">
+            <div class="flex justify-between items-center border-b border-white/10 pb-3 mb-4">
+                <h3 class="text-base font-bold font-mono-dji text-sky-400 flex items-center gap-2">
+                    <i class="fa-solid fa-map-location-dot"></i> WAYPOINT & MAPPING MISSION PLANNER
+                </h3>
+                <button onclick="toggleMissionPlanner()" class="text-white/50 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs overflow-y-auto pr-1">
+                <div class="space-y-3 bg-black/40 p-4 rounded-xl border border-white/10">
+                    <h4 class="font-bold text-white font-mono-dji uppercase text-[11px] text-sky-300">Mission Parameters</h4>
+                    <div>
+                        <label class="text-white/70 block mb-1">MISSION TYPE</label>
+                        <select id="missionType" class="w-full bg-black/60 border border-white/20 rounded p-1.5 text-white font-mono-dji" onchange="updateMissionCalc()">
+                            <option value="GRID">Photogrammetry Grid (2D/3D Map)</option>
+                            <option value="WAYPOINT">Waypoint Navigation (Route)</option>
+                            <option value="ORBIT">Orbit / POI Inspection</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-white/70 block mb-1">ALTITUDE (AGL): <span id="lblAlt" class="text-sky-400 font-bold">50</span>m</label>
+                        <input type="range" id="missionAlt" min="10" max="120" value="50" class="w-full" oninput="document.getElementById('lblAlt').innerText=this.value; updateMissionCalc();">
+                    </div>
+                    <div>
+                        <label class="text-white/70 block mb-1">FLIGHT SPEED: <span id="lblSpeed" class="text-sky-400 font-bold">5.0</span> m/s</label>
+                        <input type="range" id="missionSpeed" min="1" max="15" value="5" step="0.5" class="w-full" oninput="document.getElementById('lblSpeed').innerText=this.value; updateMissionCalc();">
+                    </div>
+                    <div>
+                        <label class="text-white/70 block mb-1">FRONT / SIDE OVERLAP: <span class="text-sky-400 font-bold">75% / 70%</span></label>
+                        <input type="range" min="50" max="90" value="75" class="w-full">
+                    </div>
+                </div>
+
+                <div class="flex flex-col justify-between bg-black/40 p-4 rounded-xl border border-white/10">
+                    <div>
+                        <h4 class="font-bold text-white font-mono-dji uppercase text-[11px] text-sky-300 mb-2">Estimated Summary</h4>
+                        <div class="space-y-2 font-mono-dji text-white/80 text-[11px]">
+                            <div class="flex justify-between border-b border-white/10 pb-1">
+                                <span class="text-white/50">Waypoints:</span>
+                                <span id="sumWaypoints" class="font-bold text-white">24 pts</span>
+                            </div>
+                            <div class="flex justify-between border-b border-white/10 pb-1">
+                                <span class="text-white/50">Estimated Distance:</span>
+                                <span id="sumDistance" class="font-bold text-white">1.4 km</span>
+                            </div>
+                            <div class="flex justify-between border-b border-white/10 pb-1">
+                                <span class="text-white/50">Flight Time:</span>
+                                <span id="sumTime" class="font-bold text-emerald-400">4 min 30 s</span>
+                            </div>
+                            <div class="flex justify-between pb-1">
+                                <span class="text-white/50">Photos to Capture:</span>
+                                <span id="sumPhotos" class="font-bold text-sky-400">118 photos</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Mini Map Preview Box -->
+                    <div class="relative w-full h-32 bg-black/70 rounded-lg border border-white/20 overflow-hidden flex items-center justify-center my-2">
+                        <canvas id="missionCanvas" class="w-full h-full"></canvas>
+                        <div class="absolute bottom-1 right-1 text-[9px] font-mono-dji bg-black/70 px-1.5 py-0.5 rounded text-sky-300">GS PRO PREVIEW</div>
+                    </div>
+
+                    <div class="flex gap-2 font-mono-dji text-xs mt-2">
+                        <button onclick="toggleMissionPlanner()" class="flex-1 py-2 rounded bg-black/60 text-white/70 hover:text-white border border-white/10">CLOSE</button>
+                        <button onclick="startAutonomousMission()" class="flex-1 py-2 rounded bg-emerald-500 hover:bg-emerald-400 text-black font-bold shadow-lg">START MISSION</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: MULTI-DRONE PROTOCOL CONNECTOR -->
+    <div id="modalConnect" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md hidden">
+        <div class="dji-panel w-11/12 max-w-lg p-6 rounded-2xl border border-sky-500/40 shadow-2xl font-dji max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center border-b border-white/10 pb-3 mb-4">
+                <h3 class="text-base font-bold font-mono-dji text-sky-400 flex items-center gap-2">
+                    <i class="fa-solid fa-microchip"></i> SELECT DRONE CLASS & PROTOCOL
+                </h3>
+                <button onclick="closeConnectModal()" class="text-white/50 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+
+            <div class="space-y-3 text-xs">
+                <p class="text-white/70 text-[11px] mb-2">Choose your aircraft category from toy drones (GT50) to professional autonomous mapping units:</p>
+
+                <!-- Class 1: Toy Drones (GT50 / Wi-Fi) -->
+                <label onclick="selectDroneClass('TOY', 'UDP')" class="border border-sky-400/50 hover:border-sky-400 p-3 rounded-xl flex items-start gap-3 cursor-pointer bg-sky-500/10 transition">
+                    <input type="radio" name="droneClass" id="classToy" class="mt-1 accent-sky-400" checked>
+                    <div>
+                        <div class="font-bold text-white font-mono-dji flex items-center gap-2">
+                            Brinquedo / Entrada <span class="bg-sky-500/25 text-sky-300 text-[10px] px-2 py-0.5 rounded">Ex: GT50 / Wi-Fi UDP</span>
+                        </div>
+                        <p class="text-[11px] text-white/60 mt-1">Direct Wi-Fi video stream (MJPEG/RTSP) with 2.4GHz UDP command packet control.</p>
+                    </div>
+                </label>
+
+                <!-- Class 2: Entry Brushless / FPV -->
+                <label onclick="selectDroneClass('ENTRY', 'MSP')" class="border border-white/15 hover:border-sky-400 p-3 rounded-xl flex items-start gap-3 cursor-pointer bg-black/40 transition">
+                    <input type="radio" name="droneClass" id="classEntry" class="mt-1 accent-sky-400">
+                    <div>
+                        <div class="font-bold text-white font-mono-dji flex items-center gap-2">
+                            Semi-Profissional / FPV <span class="bg-amber-500/25 text-amber-300 text-[10px] px-2 py-0.5 rounded">Betaflight / ExpressLRS</span>
+                        </div>
+                        <p class="text-[11px] text-white/60 mt-1">Low-latency MSP protocol, brushless motors, OSD telemetry and adjustable rates.</p>
+                    </div>
+                </label>
+
+                <!-- Class 3: Professional Autonomous (MAVLink) -->
+                <label onclick="selectDroneClass('PRO', 'MAVLINK')" class="border border-white/15 hover:border-sky-400 p-3 rounded-xl flex items-start gap-3 cursor-pointer bg-black/40 transition">
+                    <input type="radio" name="droneClass" id="classPro" class="mt-1 accent-sky-400">
+                    <div>
+                        <div class="font-bold text-white font-mono-dji flex items-center gap-2">
+                            Profissional / Mapeamento <span class="bg-purple-500/25 text-purple-300 text-[10px] px-2 py-0.5 rounded">ArduPilot / PX4 / MAVLink</span>
+                        </div>
+                        <p class="text-[11px] text-white/60 mt-1">Full waypoint photogrammetry grid missions, RTK GPS telemetry, and autonomous return.</p>
+                    </div>
+                </label>
+            </div>
+
+            <div class="mt-6 flex justify-end gap-3 font-mono-dji text-xs">
+                <button onclick="closeConnectModal()" class="px-4 py-2 rounded bg-black/60 text-white/70 hover:text-white">CANCEL</button>
+                <button onclick="establishConnection()" class="px-5 py-2 rounded bg-sky-500 hover:bg-sky-400 text-black font-bold shadow-lg">CONNECT & FLY</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SCRIPT ENGINE -->
+    <script>
+        /* ==========================================================================
+           GLOBAL UTILITIES & ACTION CONTROLLERS
+           ========================================================================== */
+        const state = {
+            connected: false,
+            droneClass: 'TOY',
+            protocol: 'UDP',
+            armed: false,
+            inAir: false,
+            flightMode: 'N-MODE',
+            camMode: 'PHOTO',
+            altitude: 0.0,
+            vSpeed: 0.0,
+            distance: 0.0,
+            hSpeed: 0.0,
+            pitch: 0.0,
+            roll: 0.0,
+            yaw: 0.0,
+            battery: 84.0,
+            gimbalTilt: 0,
+            input: { throttle: 0, yaw: 0, pitch: 0, roll: 0 }
+        };
+
+        // Web Audio API Beeps
+        let audioCtx = null;
+        function playBeep(freq = 800, type = 'sine', duration = 0.12) {
+            try {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch (e) {}
+        }
+
+        function togglePanel(panelId) {
+            const p = document.getElementById(panelId);
+            if (p) p.classList.toggle('hidden');
+        }
+
+        function openConnectModal() {
+            const modal = document.getElementById('modalConnect');
+            if (modal) modal.classList.remove('hidden');
+        }
+
+        function closeConnectModal() {
+            const modal = document.getElementById('modalConnect');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function selectDroneClass(dClass, proto) {
+            state.droneClass = dClass;
+            state.protocol = proto;
+            playBeep(880, 'sine', 0.08);
+        }
+
+        function establishConnection() {
+            closeConnectModal();
+            state.connected = true;
+            playBeep(1200, 'sine', 0.2);
+            const statusText = document.getElementById('statusText');
+            let className = state.droneClass === 'TOY' ? 'GT50 Toy Drone' : (state.droneClass === 'ENTRY' ? 'Semi-Pro FPV' : 'Professional MAVLink');
+            if (statusText) statusText.innerText = `${state.flightMode} | ${className} Connected`;
+        }
+
+        function toggleFlightMode() {
+            playBeep(1000, 'sine', 0.1);
+            if (state.flightMode === 'N-MODE') state.flightMode = 'S-MODE';
+            else if (state.flightMode === 'S-MODE') state.flightMode = 'C-MODE';
+            else state.flightMode = 'N-MODE';
+
+            const modeLabel = document.getElementById('flightModeLabel');
+            const statusText = document.getElementById('statusText');
+            if (modeLabel) modeLabel.innerText = state.flightMode;
+            if (statusText) statusText.innerText = `${state.flightMode} (GPS) | Ready to Go`;
+        }
+
+        function toggleTakeoff() {
+            if (!state.connected) {
+                openConnectModal();
+                return;
+            }
+            playBeep(600, 'square', 0.25);
+            state.armed = true;
+            if (!state.inAir) {
+                state.input.throttle = 0.8;
+                setTimeout(() => { state.input.throttle = 0; }, 1000);
+            } else {
+                state.input.throttle = -0.5;
+            }
+        }
+
+        function triggerRTH() {
+            if (!state.inAir) return;
+            playBeep(1400, 'sine', 0.3);
+            state.input.pitch = 0;
+            state.input.roll = 0;
+            state.input.throttle = -0.4;
+        }
+
+        function toggleCamMode() {
+            playBeep(900, 'sine', 0.1);
+            state.camMode = state.camMode === 'PHOTO' ? 'VIDEO' : 'PHOTO';
+            const icon = document.getElementById('camModeIcon');
+            const inner = document.getElementById('shutterInner');
+            if (state.camMode === 'VIDEO') {
+                if (icon) icon.className = 'fa-solid fa-camera text-xs';
+                if (inner) inner.className = 'shutter-inner-video';
+            } else {
+                if (icon) icon.className = 'fa-solid fa-video text-xs';
+                if (inner) inner.className = 'shutter-inner-photo';
+            }
+        }
+
+        function triggerShutter() {
+            playBeep(1800, 'sine', 0.08);
+            const canvasEl = document.getElementById('fpvCanvas');
+            if (canvasEl) {
+                canvasEl.style.filter = 'brightness(2)';
+                setTimeout(() => { canvasEl.style.filter = 'none'; }, 80);
+            }
+        }
+
+        function toggleMissionPlanner() {
+            playBeep(950, 'sine', 0.1);
+            const modal = document.getElementById('modalMission');
+            if (modal) {
+                modal.classList.toggle('hidden');
+                if (!modal.classList.contains('hidden')) {
+                    drawMissionPreview();
+                }
+            }
+        }
+
+        function updateMissionCalc() {
+            const type = document.getElementById('missionType').value;
+            const alt = parseFloat(document.getElementById('missionAlt').value);
+            const speed = parseFloat(document.getElementById('missionSpeed').value);
+
+            let pts = type === 'GRID' ? 36 : (type === 'WAYPOINT' ? 12 : 24);
+            let dist = (pts * 45 * (alt / 50)).toFixed(1);
+            let timeSec = Math.round(dist / speed);
+            let mins = Math.floor(timeSec / 60);
+            let secs = timeSec % 60;
+            let photos = type === 'GRID' ? Math.round(pts * 3.5) : pts;
+
+            document.getElementById('sumWaypoints').innerText = `${pts} pts`;
+            document.getElementById('sumDistance').innerText = `${dist} km`;
+            document.getElementById('sumTime').innerText = `${mins} min ${secs} s`;
+            document.getElementById('sumPhotos').innerText = `${photos} photos`;
+            drawMissionPreview();
+        }
+
+        function drawMissionPreview() {
+            const c = document.getElementById('missionCanvas');
+            if (!c) return;
+            const ctxM = c.getContext('2d');
+            c.width = c.clientWidth;
+            c.height = c.clientHeight;
+
+            ctxM.clearRect(0, 0, c.width, c.height);
+            ctxM.strokeStyle = '#38bdf8';
+            ctxM.lineWidth = 2;
+            ctxM.beginPath();
+
+            const pts = 8;
+            for (let i = 0; i < pts; i++) {
+                let x = 20 + (i % 4) * ((c.width - 40) / 3);
+                let y = 20 + Math.floor(i / 4) * (c.height - 40);
+                if (i === 0) ctxM.moveTo(x, y);
+                else ctxM.lineTo(x, y);
+            }
+            ctxM.stroke();
+
+            // Draw Waypoint nodes
+            ctxM.fillStyle = '#10b981';
+            for (let i = 0; i < pts; i++) {
+                let x = 20 + (i % 4) * ((c.width - 40) / 3);
+                let y = 20 + Math.floor(i / 4) * (c.height - 40);
+                ctxM.beginPath();
+                ctxM.arc(x, y, 4, 0, Math.PI * 2);
+                ctxM.fill();
+            }
+        }
+
+        function startAutonomousMission() {
+            toggleMissionPlanner();
+            playBeep(1500, 'sine', 0.2);
+            state.armed = true;
+            state.inAir = true;
+            state.altitude = 50;
+            state.distance = 0.5;
+            state.flightMode = 'S-MODE';
+            document.getElementById('flightModeLabel').innerText = 'AUTO-MISSION';
+        }
+
+        function updateGimbalTilt(val) {
+            state.gimbalTilt = parseFloat(val);
+        }
+
+        /* ==========================================================================
+           FPV CANVAS & ARTIFICIAL HORIZON RENDERER
+           ========================================================================== */
+        const canvas = document.getElementById('fpvCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            if (canvas) {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        let terrainOffset = 0;
+
+        function renderFPV() {
+            if (!canvas || !ctx) return;
+            const w = canvas.width;
+            const h = canvas.height;
+            const cx = w / 2;
+            const cy = h / 2;
+
+            ctx.clearRect(0, 0, w, h);
+
+            const rollRad = (state.roll * Math.PI) / 180;
+            const pitchPixels = state.pitch * 3;
+
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(rollRad);
+            ctx.translate(-cx, -cy);
+
+            // Sky Fill
+            const skyGrad = ctx.createLinearGradient(0, cy - h + pitchPixels, 0, cy + pitchPixels);
+            skyGrad.addColorStop(0, '#0c4a6e');
+            skyGrad.addColorStop(1, '#38bdf8');
+            ctx.fillStyle = skyGrad;
+            ctx.fillRect(-w, -h * 2 + pitchPixels, w * 3, h * 2);
+
+            // Ground Fill
+            const groundGrad = ctx.createLinearGradient(0, cy + pitchPixels, 0, cy + h + pitchPixels);
+            groundGrad.addColorStop(0, '#14532d');
+            groundGrad.addColorStop(1, '#052e16');
+            ctx.fillStyle = groundGrad;
+            ctx.fillRect(-w, cy + pitchPixels, w * 3, h * 2);
+
+            // Horizon Line
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(-w, cy + pitchPixels);
+            ctx.lineTo(w * 2, cy + pitchPixels);
+            ctx.stroke();
+
+            // Grid perspective
+            terrainOffset = (terrainOffset + state.hSpeed * 0.8) % 40;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+            for (let i = -w; i < w * 2; i += 70) {
+                ctx.beginPath();
+                ctx.moveTo(i, cy + pitchPixels);
+                ctx.lineTo(cx + (i - cx) * 3, h * 2);
+                ctx.stroke();
+            }
+
+            ctx.restore();
+            requestAnimationFrame(renderFPV);
+        }
+
+        /* ==========================================================================
+           PHYSICS TICK
+           ========================================================================== */
+        setInterval(() => {
+            if (!state.armed) {
+                updateUI();
+                return;
+            }
+
+            const maxTilt = state.flightMode === 'S-MODE' ? 35 : 20;
+            const targetPitch = state.input.pitch * maxTilt;
+            const targetRoll = state.input.roll * maxTilt;
+
+            state.pitch += (targetPitch - state.pitch) * 0.2;
+            state.roll += (targetRoll - state.roll) * 0.2;
+            state.yaw = (state.yaw + state.input.yaw * 3 + 360) % 360;
+
+            state.vSpeed = state.input.throttle * (state.flightMode === 'S-MODE' ? 6.0 : 4.0);
+            state.altitude = Math.max(0, state.altitude + state.vSpeed * 0.1);
+
+            state.inAir = state.altitude > 0.1;
+
+            const tiltMag = Math.sqrt(state.pitch * state.pitch + state.roll * state.roll);
+            state.hSpeed = (tiltMag / maxTilt) * (state.flightMode === 'S-MODE' ? 16.0 : 10.0);
+            if (state.inAir) {
+                state.distance += state.hSpeed * 0.1;
+                state.battery = Math.max(0, state.battery - 0.008);
+            }
+
+            updateUI();
+        }, 100);
+
+        /* ==========================================================================
+           UI UPDATE ROUTINE
+           ========================================================================== */
+        function updateUI() {
+            const elH = document.getElementById('telemetryH');
+            const elD = document.getElementById('telemetryD');
+            const elVS = document.getElementById('telemetryVS');
+            const elHS = document.getElementById('telemetryHS');
+            const elBat = document.getElementById('batPct');
+            const elRadarDist = document.getElementById('radarDistTag');
+            const elRadarArrow = document.getElementById('radarArrow');
+            const elBatVolts = document.getElementById('batVolts');
+            const elPanelVolts = document.getElementById('panelBatVolts');
+            const labelT = document.getElementById('takeoffLabel');
+            const iconT = document.getElementById('takeoffIcon');
+
+            if (elH) elH.innerText = state.altitude.toFixed(1);
+            if (elD) elD.innerText = state.distance.toFixed(1);
+            if (elVS) elVS.innerText = (state.vSpeed >= 0 ? '+' : '') + state.vSpeed.toFixed(1);
+            if (elHS) elHS.innerText = state.hSpeed.toFixed(1);
+            if (elBat) elBat.innerText = `${Math.round(state.battery)}%`;
+            if (elRadarDist) elRadarDist.innerText = `H: ${state.distance.toFixed(0)}m`;
+            if (elRadarArrow) elRadarArrow.style.transform = `rotate(${state.yaw - 45}deg)`;
+
+            const volts = (14.0 + (state.battery / 100) * 2.8).toFixed(1);
+            if (elBatVolts) elBatVolts.innerText = `${volts}V`;
+            if (elPanelVolts) elPanelVolts.innerText = `${volts} V`;
+
+            if (state.inAir) {
+                if (labelT) labelT.innerText = "LAND";
+                if (iconT) iconT.className = "fa-solid fa-arrow-down-to-bracket text-base text-amber-400";
+            } else {
+                if (labelT) labelT.innerText = "TAKEOFF";
+                if (iconT) iconT.className = "fa-solid fa-arrow-up-from-bracket text-base text-emerald-400";
+            }
+        }
+
+        /* ==========================================================================
+           JOYSTICKS ENGINE
+           ========================================================================== */
+        function setupJoystick(zoneId, handleId, onMove) {
+            const zone = document.getElementById(zoneId);
+            const handle = document.getElementById(handleId);
+            if (!zone || !handle) return;
+            let active = false;
+            let rect;
+
+            function handleStart(e) {
+                active = true;
+                rect = zone.getBoundingClientRect();
+                handleMove(e);
+            }
+
+            function handleMove(e) {
+                if (!active) return;
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+
+                let deltaX = clientX - centerX;
+                let deltaY = clientY - centerY;
+                const maxRadius = rect.width / 2;
+
+                const dist = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+                if (dist > maxRadius) {
+                    deltaX = (deltaX / dist) * maxRadius;
+                    deltaY = (deltaY / dist) * maxRadius;
+                }
+
+                handle.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
+
+                const normX = deltaX / maxRadius;
+                const normY = -deltaY / maxRadius;
+                onMove(normX, normY);
+            }
+
+            function handleEnd() {
+                if (!active) return;
+                active = false;
+                handle.style.transform = `translate(-50%, -50%)`;
+                onMove(0, 0);
+            }
+
+            zone.addEventListener('mousedown', handleStart);
+            window.addEventListener('mousemove', handleMove);
+            window.addEventListener('mouseup', handleEnd);
+
+            zone.addEventListener('touchstart', handleStart);
+            window.addEventListener('touchmove', handleMove);
+            window.addEventListener('touchend', handleEnd);
+        }
+
+        setupJoystick('joyLeft', 'handleLeft', (x, y) => {
+            state.input.yaw = x;
+            state.input.throttle = y;
+        });
+
+        setupJoystick('joyRight', 'handleRight', (x, y) => {
+            state.input.roll = x;
+            state.input.pitch = y;
+        });
+
+        // Register Service Worker for Android PWA Installation
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js').catch(err => console.log('SW registration failed:', err));
+            });
+        }
+
+        // Run Canvas
+        renderFPV();
+    </script>
+</body>
+</html>
