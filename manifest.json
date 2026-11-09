@@ -1,0 +1,25 @@
+{
+  "name": "DJI Smart Controller OS",
+  "short_name": "DJI OS",
+  "description": "Universal Drone Smart Controller PWA for Android",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "orientation": "landscape",
+  "scope": "./",
+  "icons": [
+    {
+      "src": "https://placehold.co/192x192/0284c7/ffffff?text=DJI+OS",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://placehold.co/512x512/0284c7/ffffff?text=DJI+OS",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
